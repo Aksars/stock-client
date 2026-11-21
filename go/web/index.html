@@ -88,7 +88,8 @@
   <section class="wide">
     <h2>Настройки</h2>
     <div class="row"><span class="muted" style="width:150px">Адрес сервера</span><input id="serverUrl" placeholder="https://…" style="flex:1;min-width:240px"><button id="serverSave">Сохранить</button></div>
-    <div class="row"><span class="muted" style="width:150px">Ключ сервера</span><input id="serverKey" type="password" autocomplete="off" placeholder="выдаёт владелец сервера" style="flex:1;min-width:240px"><button id="keySave">Сохранить</button></div>
+    <div class="row"><span class="muted" style="width:150px">Вход на сервер</span><input id="login" placeholder="логин" autocomplete="username" style="width:140px"><input id="password" type="password" placeholder="пароль" autocomplete="current-password" style="width:160px"><input id="device" placeholder="имя устройства" style="width:150px"><button id="loginGo">Войти</button><button id="logoutGo">Выйти</button></div>
+    <div class="row"><span class="muted" style="width:150px">или ключ сервера</span><input id="serverKey" type="password" autocomplete="off" placeholder="выдаёт владелец сервера" style="flex:1;min-width:240px"><button id="keySave">Сохранить</button></div>
     <div class="row"><span class="muted" style="width:150px">Счёт для торговли</span><select id="account" style="flex:1;min-width:240px"><option value="">— сначала сохраните токен и загрузите счета —</option></select><button id="accLoad">Загрузить счета</button><button id="accSave">Выбрать</button></div>
     <div class="msg" id="setMsg"></div>
     <div class="muted">Менять можно, когда исполнение выключено или остановлено. Лучше выделить под стратегию отдельный счёт и выпустить токен только на него.</div>

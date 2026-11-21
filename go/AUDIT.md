@@ -24,8 +24,13 @@ user's T-Invest account with the user's token.
 
 There are exactly two `http.Client`s and both refuse redirects:
 
-1. **Strategy server** — `server.go`, `fetchDecision`: `GET {config.server_url}/api/v1/decision`, header
-   `Authorization: Bearer <secrets/server-api-key.txt>`. No request body. Nothing else is ever sent to the server.
+1. **Strategy server** — `server.go`:
+   - `fetchDecision`: `GET {server_url}/api/v1/decision`, header `Authorization: Bearer <secrets/server-api-key.txt>`, no body;
+   - `serverPost` from `POST /api/login` (button «Войти»): `POST {server_url}/api/v1/login` with `{login, password, device}`;
+     the answer is a device key, saved to `secrets/server-api-key.txt`; the password is not stored anywhere. Over plain http the
+     login is refused unless the server is on this computer or in a private network (`loginAllowed`);
+   - `serverPost` from `POST /api/logout` (button «Выйти»): `POST {server_url}/api/v1/logout` with the device key.
+   Nothing else is ever sent to the server.
    Development only: with `server_url = "registry"` the address is read from the local file
    `registry/stock-analysis/client-api.json` (written by the server in the shared folder of the developer's sandboxes).
 2. **Broker** — `tinvest.go`, `tcall`: `POST https://invest-public-api.tbank.ru/rest/tinkoff.public.invest.api.contract.v1.<Method>`
@@ -40,6 +45,10 @@ There is no default server address: the user enters it in «Настройки»
 The only local program started is the default browser (`main.go`, `openBrowser`, can be disabled with `-no-browser`).
 
 ## 3. What the server can and cannot make the client do
+
+Every decision must be signed with Ed25519 by a key listed in `TrustedKeys` (`server.go`); `parseDecision` verifies the
+signature and builds the decision from the signed bytes only, so a changed answer on the way (or a fake server) is refused.
+The cached decision is verified again before any use. To check: `go test -run TestSignature ./...`.
 
 The server's answer is checked by `validateDecision` (`server.go`) before use: known contract, real tickers only, weights
 between 0 and 1 summing to 1, the cash part only in an allowed fund (`TPAY`), no stock above 50% of the portfolio, at most

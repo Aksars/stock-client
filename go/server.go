@@ -1,14 +1,22 @@
-// The strategy server. The client makes exactly ONE kind of request to it:
+// The strategy server. The client makes exactly three kinds of request to it:
 //
-//	GET {server_url}/api/v1/decision   with the header  Authorization: Bearer <secrets/server-api-key.txt>
+//	GET  {server_url}/api/v1/decision   header Authorization: Bearer <secrets/server-api-key.txt>
+//	POST {server_url}/api/v1/login      {login, password, device} — only when the user presses «Войти»; answer: a device key
+//	POST {server_url}/api/v1/logout     header Authorization — only when the user presses «Выйти»
 //
-// Nothing else is ever sent to the server: no token, no account number, no positions, no orders, no logs.
+// Nothing else is ever sent to the server: no T-Invest token, no account number, no positions, no orders, no logs.
+// The password is sent once at login and is not stored. Login over plain http is refused unless the server is on this computer or
+// in a private network.
+// Every decision must carry an Ed25519 signature by a key in TrustedKeys; only the signed bytes are used.
 // The answer (contract client-decision-v1) holds only target weights and dates; it is checked by validateDecision
 // before anything is done with it, so even a broken or hostile server cannot make the client trade outside the
 // guards below.
 package main
 
 import (
+	"bytes"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +25,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"net"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -31,6 +41,55 @@ var (
 	MaxStocks      = 30                                   // more names than this is not a plausible decision
 	MaxStockWeight = 0.50                                 // one stock may not be above half of the portfolio
 )
+
+// TrustedKeys: public keys of the strategy server (key id -> base64). A decision is accepted only with a valid signature by one
+// of them. The private key never leaves the server (secrets/client-signing-key.json there).
+var TrustedKeys = map[string]string{
+	"fc3fc737": "iwsWRQ7IGlBZe+ntoaM9P2OR9ks/QA4Mn84B9mWkUIs=",
+}
+
+type signature struct {
+	Alg     string `json:"alg"`
+	KeyID   string `json:"key_id"`
+	Payload string `json:"payload"`
+	Sig     string `json:"sig"`
+}
+
+// parseDecision checks the signature and returns the decision made of the SIGNED payload only (unsigned fields are ignored).
+func parseDecision(raw []byte) (*Decision, error) {
+	var env struct {
+		Signature *signature `json:"signature"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, errors.New("server answer is not a decision")
+	}
+	body := raw
+	if len(TrustedKeys) > 0 {
+		sg := env.Signature
+		if sg == nil {
+			return nil, errors.New("decision is not signed")
+		}
+		pk, ok := TrustedKeys[sg.KeyID]
+		if !ok || sg.Alg != "ed25519" {
+			return nil, fmt.Errorf("decision signed by an unknown key %q", sg.KeyID)
+		}
+		pub, _ := base64.StdEncoding.DecodeString(pk)
+		payload, err1 := base64.StdEncoding.DecodeString(sg.Payload)
+		sig, err2 := base64.StdEncoding.DecodeString(sg.Sig)
+		if err1 != nil || err2 != nil || len(pub) != ed25519.PublicKeySize || !ed25519.Verify(pub, payload, sig) {
+			return nil, errors.New("decision signature is not valid")
+		}
+		body = payload
+	}
+	var d Decision
+	if err := json.Unmarshal(body, &d); err != nil {
+		return nil, errors.New("signed payload is not a decision")
+	}
+	if err := validateDecision(&d); err != nil {
+		return nil, fmt.Errorf("decision rejected: %v", err)
+	}
+	return &d, nil
+}
 
 type Decision struct {
 	Contract     string             `json:"contract"`
@@ -137,22 +196,72 @@ var fetchDecision = func() (*Decision, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("server HTTP %d", resp.StatusCode)
 	}
-	var d Decision
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&d); err != nil {
-		return nil, errors.New("server answer is not a decision")
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, errors.New("server answer was cut")
 	}
-	if err := validateDecision(&d); err != nil {
-		return nil, fmt.Errorf("decision rejected: %v", err)
+	d, err := parseDecision(raw)
+	if err != nil {
+		return nil, err
 	}
 	d.FetchedAt = time.Now().UTC().Format(time.RFC3339)
-	saveJSON("decision_cache.json", d)
-	return &d, nil
+	saveJSON("decision_cache.json", cacheEntry{FetchedAt: d.FetchedAt, Response: raw})
+	return d, nil
+}
+
+// cacheEntry keeps the server's answer as received, so that the cached decision is verified again before any use.
+type cacheEntry struct {
+	FetchedAt string          `json:"fetched_at"`
+	Response  json.RawMessage `json:"response"`
 }
 
 func cachedDecision() *Decision {
-	var d Decision
-	if !loadJSON("decision_cache.json", &d) || validateDecision(&d) != nil {
+	var c cacheEntry
+	if !loadJSON("decision_cache.json", &c) || len(c.Response) == 0 {
 		return nil
 	}
-	return &d
+	d, err := parseDecision(c.Response)
+	if err != nil {
+		return nil
+	}
+	d.FetchedAt = c.FetchedAt
+	return d
+}
+
+// loginAllowed: the password may travel over plain http only to this computer or a private network address.
+func loginAllowed(base string) error {
+	u, err := url.Parse(base)
+	if err != nil {
+		return errors.New("bad server address")
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	h := u.Hostname()
+	if ip := net.ParseIP(h); h == "localhost" || (ip != nil && (ip.IsLoopback() || ip.IsPrivate())) {
+		return nil
+	}
+	return errors.New("вход по http разрешён только к серверу на этом компьютере или в локальной сети — нужен https://")
+}
+
+// serverPost sends one JSON request to the strategy server (login / logout only).
+func serverPost(base, path, key string, body any) (map[string]any, int, error) {
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequest("POST", strings.TrimRight(base, "/")+path, bytes.NewReader(b))
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	c := &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, 0, errors.New("server unreachable")
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out)
+	return out, resp.StatusCode, nil
 }

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"io/fs"
 	"net/http"
+	"path/filepath"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -162,4 +164,17 @@ func TestListenFallsBackToTheNextPort(t *testing.T) {
 	if b.Addr().String() == busy {
 		t.Fatal("same port")
 	}
+}
+
+// readAll returns the content of every file under the home folder (to check that no password is stored anywhere).
+func readAll(t *testing.T) string {
+	var sb strings.Builder
+	filepath.WalkDir(homeDir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			b, _ := os.ReadFile(p)
+			sb.Write(b)
+		}
+		return nil
+	})
+	return sb.String()
 }

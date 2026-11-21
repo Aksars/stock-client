@@ -12,6 +12,7 @@ package main
 
 import (
 	"embed"
+	"os"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -479,6 +480,54 @@ func routes() *http.ServeMux {
 		}
 		change("server_key", nil, "заменён")
 		return withResult("Ключ сервера сохранён."), nil
+	}))
+
+	// Login to the strategy server: the password goes to the server once; the device key it returns is saved (never shown).
+	mux.HandleFunc("/api/login", wrap("POST", func(r *http.Request) (any, *apiError) {
+		var b struct{ Login, Password, Device string }
+		if e := body(r, &b); e != nil {
+			return nil, e
+		}
+		base, err := serverURL(loadConfig())
+		if err != nil {
+			return nil, fail(409, "%v", err)
+		}
+		if err := loginAllowed(base); err != nil {
+			return nil, fail(409, "%v", err)
+		}
+		out, code, err := serverPost(base, "/api/v1/login", "", map[string]string{"login": b.Login, "password": b.Password, "device": b.Device})
+		if err != nil {
+			return nil, fail(502, "%v", err)
+		}
+		key, _ := out["key"].(string)
+		if code != 200 || !tokenRe.MatchString(key) {
+			if code == 429 {
+				return nil, fail(429, "Слишком много попыток — попробуйте позже")
+			}
+			return nil, fail(401, "Неверный логин или пароль")
+		}
+		if err := writeSecret("server-api-key.txt", key); err != nil {
+			return nil, fail(500, "Не удалось сохранить ключ")
+		}
+		change("server_login", nil, fmt.Sprint(out["login"], " · устройство ", out["device_id"]))
+		return withResult("Вход выполнен, ключ устройства сохранён."), nil
+	}))
+
+	// Logout: the server revokes this device's key; the local key file is removed.
+	mux.HandleFunc("/api/logout", wrap("POST", func(r *http.Request) (any, *apiError) {
+		key := readSecret("server-api-key.txt")
+		if key == "" {
+			return nil, fail(409, "Вход не выполнен")
+		}
+		note := "ключ отозван на сервере"
+		if base, err := serverURL(loadConfig()); err != nil {
+			note = "сервер не настроен — ключ удалён только здесь"
+		} else if _, code, err := serverPost(base, "/api/v1/logout", key, map[string]any{}); err != nil || code != 200 {
+			note = "сервер недоступен — ключ удалён только здесь"
+		}
+		os.Remove(secretPath("server-api-key.txt"))
+		change("server_logout", nil, note)
+		return withResult("Выход: " + note + "."), nil
 	}))
 
 	// Accounts the saved token sees (id, name, type, access) — to choose the account to trade. Reads only.

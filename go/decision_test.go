@@ -65,7 +65,8 @@ func TestPickDecision(t *testing.T) {
 
 func TestServerDownOnlyTopUpByCache(t *testing.T) {
 	homeDir = t.TempDir()
-	saveJSON("decision_cache.json", dec())
+	useTestKey(t)
+	saveJSON("decision_cache.json", cacheEntry{FetchedAt: "x", Response: signedRaw(dec(), testKey)})
 	withFetch(t, nil, errors.New("down"))
 	if x, _, _ := pickDecision(State{}, 0, 100, "2026-11-21"); x != nil {
 		t.Fatal("cached decision executed as new")

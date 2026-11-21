@@ -42,7 +42,7 @@ function render(s) {
       `<span class="muted">получено ${when(d.fetched_at)}</span></div><table>` +
       w.map(([t, x]) => `<tr><td style="width:70px">${esc(t)}${t === d.cash_ticker ? ' <span class="muted">фонд</span>' : ''}</td><td class="n" style="width:80px">${pct(x)}</td>` +
         `<td><div class="bar" style="width:${(100 * x).toFixed(1)}%"></div></td></tr>`).join('') + '</table>' +
-      `<div class="muted">${esc(d.policy)} · ${esc(d.decision_id)} · исполнять: закрытие следующей сессии</div>`;
+      `<div class="muted">${esc(d.policy)} · ${esc(d.decision_id)} · подпись сервера проверена · исполнять: закрытие следующей сессии</div>`;
   }
 
   const facts = [
@@ -116,6 +116,12 @@ $('confirm').addEventListener('click', () => act('planMsg', () => api('/api/conf
 $('managedSave').addEventListener('click', () => act('manMsg', () => api('/api/managed', { tickers: [...document.querySelectorAll('#holdings input[data-t]:checked')].map((x) => x.dataset.t) })));
 $('serverSave').addEventListener('click', () => act('setMsg', () => api('/api/settings', { server_url: $('serverUrl').value })));
 $('keySave').addEventListener('click', () => { const key = $('serverKey').value; $('serverKey').value = ''; act('setMsg', () => api('/api/server-key', { key })); });
+$('loginGo').addEventListener('click', () => {
+  const b = { login: $('login').value, password: $('password').value, device: $('device').value || 'компьютер' };
+  $('password').value = '';
+  act('setMsg', () => api('/api/login', b));
+});
+$('logoutGo').addEventListener('click', () => act('setMsg', () => api('/api/logout', {})));
 $('accLoad').addEventListener('click', async () => {
   $('setMsg').textContent = '…';
   try {
