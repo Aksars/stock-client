@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Клиент стратегии</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --ink:#1d1d1b; --muted:#6b6a66; --line:#e3e1dc; --ok:#1f7a4d; --warn:#a15c00; --bad:#b3261e; --acc:#2b4c7e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161615; --card:#1f1f1d; --ink:#ecebe7; --muted:#9b9a95; --line:#33322f; --ok:#5fc08d; --warn:#e0a24a; --bad:#ef7d74; --acc:#8fb0e3; } }
+  [hidden] { display:none !important }
+  * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap }
+  header h1 { font-size:18px; margin:0; font-weight:600 } .pill { padding:3px 10px; border-radius:99px; font-size:13px; border:1px solid var(--line) }
+  .pill.off{color:var(--muted)} .pill.sandbox{color:var(--acc);border-color:var(--acc)} .pill.live{color:#fff;background:var(--bad);border-color:var(--bad)} .pill.stop{color:#fff;background:var(--warn);border-color:var(--warn)}
+  main { max-width:1100px; margin:0 auto; padding:20px 24px 60px; display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)) }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px } section.wide { grid-column:1/-1 }
+  h2 { font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 12px; font-weight:600 }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums } td,th { padding:5px 6px; border-bottom:1px solid var(--line); text-align:left } th { color:var(--muted); font-weight:500; font-size:13px }
+  td.n,th.n { text-align:right } .bar { height:6px; background:var(--acc); border-radius:3px; opacity:.75 }
+  button { font:inherit; padding:7px 14px; border-radius:7px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer }
+  button:hover { border-color:var(--acc) } button.primary { background:var(--acc); color:#fff; border-color:var(--acc) } button.danger { background:var(--bad); color:#fff; border-color:var(--bad) }
+  button:disabled { opacity:.45; cursor:default } input { font:inherit; padding:6px 9px; border-radius:7px; border:1px solid var(--line); background:var(--bg); color:var(--ink) }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0 } .muted { color:var(--muted); font-size:13px } .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .msg { min-height:20px; font-size:13px } ul { margin:6px 0; padding-left:18px } .run { border-top:1px solid var(--line); padding:8px 0 } .run:first-child{border-top:0}
+  kbd { font:12px ui-monospace,monospace; border:1px solid var(--line); border-radius:4px; padding:1px 5px }
+</style>
+</head>
+<body>
+<header>
+  <h1>Клиент стратегии</h1>
+  <span id="mode" class="pill">…</span>
+  <span id="stopPill" class="pill stop" hidden>остановлено</span>
+  <span class="muted" id="window"></span>
+</header>
+<main>
+  <section>
+    <h2>Решение сервера</h2>
+    <div id="decision" class="muted">загрузка…</div>
+    <div class="row"><button id="refresh">Обновить с сервера</button><span class="msg" id="decMsg"></span></div>
+  </section>
+
+  <section>
+    <h2>Управление</h2>
+    <div class="row">
+      <button data-mode="off">Выключено</button>
+      <button data-mode="sandbox">Песочница</button>
+      <button data-mode="live" class="danger">Реальный счёт…</button>
+    </div>
+    <div class="row" id="liveBox" hidden>
+      <input id="phrase" placeholder="введите фразу" autocomplete="off" size="18">
+      <button id="liveGo" class="danger">Включить реальный счёт</button>
+    </div>
+    <div class="row">
+      <button id="stop" class="danger">Аварийная остановка</button>
+      <button id="unstop" hidden>Снять остановку</button>
+    </div>
+    <div class="row">
+      <span class="muted">Предел одной заявки, ₽</span>
+      <input id="limit" type="number" min="1000" max="1000000" step="1000" style="width:120px"><button id="limitSave">Сохранить</button>
+    </div>
+    <div class="row"><button id="runNow">Проход сейчас (песочница)</button></div>
+    <div class="msg" id="ctlMsg"></div>
+    <div class="muted" id="facts"></div>
+  </section>
+
+  <section class="wide">
+    <h2>Торговый токен T-Invest</h2>
+    <div class="muted" id="tokenState"></div>
+    <div class="row">
+      <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="вставьте токен" style="flex:1;min-width:260px">
+      <button id="tokenSave" class="primary">Проверить и сохранить</button>
+    </div>
+    <div class="msg" id="tokMsg"></div>
+    <div class="muted">Токен проверяется у брокера и сохраняется только на этой машине, в <kbd>secrets/tinvest-trade.txt</kbd> (доступ только владельцу). Можно и положить файл туда самому. На сервер стратегии токен не отправляется. Замена — только при выключенном исполнении или после аварийной остановки.</div>
+  </section>
+
+  <section class="wide">
+    <h2>Проверка реального счёта (без заявок)</h2>
+    <div class="row"><button id="check" class="primary">Проверить счёт</button><span class="msg" id="chkMsg"></span></div>
+    <div id="checkBox" class="muted">Проверка читает счёт вашим токеном и показывает, какие заявки отправило бы текущее решение. Ничего не отправляет.</div>
+  </section>
+
+  <section class="wide">
+    <h2>Последние проходы</h2>
+    <div id="runs" class="muted">—</div>
+  </section>
+
+  <section class="wide">
+    <h2>Журнал изменений</h2>
+    <div id="history" class="muted">—</div>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

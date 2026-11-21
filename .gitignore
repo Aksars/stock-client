@@ -1,0 +1,12 @@
+secrets/
+data/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pending
+# shared sandbox mounts
+/context/
+/output/
+/registry/
+/go/dist/
+/PROJECT.md
