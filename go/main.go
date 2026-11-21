@@ -52,6 +52,27 @@ func openBrowser(url string) {
 	c.Start()
 }
 
+// listenFrom opens the given address; if its port is busy (another copy of the client is running), the next 9 ports are tried.
+func listenFrom(addr string) (net.Listener, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	p := 0
+	fmt.Sscan(port, &p)
+	var first error
+	for i := 0; i < 10; i++ {
+		ln, err := net.Listen("tcp", net.JoinHostPort(host, fmt.Sprint(p+i)))
+		if err == nil {
+			return ln, nil
+		}
+		if first == nil {
+			first = err
+		}
+	}
+	return nil, first
+}
+
 func main() {
 	exe, _ := os.Executable()
 	home := flag.String("home", filepath.Dir(exe), "folder with data/ and secrets/")
@@ -69,7 +90,7 @@ func main() {
 		ip := net.ParseIP(h)
 		allowWideHost = !(h == "localhost" || (ip != nil && ip.IsLoopback()))
 	}
-	ln, err := net.Listen("tcp", *listen)
+	ln, err := listenFrom(*listen)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cannot listen on", *listen, ":", err)
 		os.Exit(1)

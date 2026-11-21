@@ -146,3 +146,20 @@ func TestNoServerAddressByDefault(t *testing.T) {
 		t.Fatal("a default server address must not exist")
 	}
 }
+
+func TestListenFallsBackToTheNextPort(t *testing.T) {
+	a, err := listenFrom("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	busy := a.Addr().String()
+	b, err := listenFrom(busy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if b.Addr().String() == busy {
+		t.Fatal("same port")
+	}
+}
