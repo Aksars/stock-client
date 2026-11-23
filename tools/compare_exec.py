@@ -12,6 +12,9 @@ def pct(x):return f'{100*x:.1f}%'
 def main(argv):
     since=argv[argv.index('--since')+1] if '--since' in argv else '2000-01-01'
     old,new=latest('old'),latest('new');dec=json.loads(Path('/workspace/data/decision_cache.json').read_text())
+    # Go client cache: {fetched_at, response}; the decision body is the signed payload (base64)
+    dec=dec.get('response',dec);sig=dec.get('signature') or {}
+    if sig.get('payload'):import base64;dec=json.loads(base64.b64decode(sig['payload']))
     tgt=dec['weights'];L=[f"# Сверка исполнителей — {dt.date.today().isoformat()}",'',
        f"Решение сервера: {dec['decision_date']} (id {dec['decision_id']}), действует до {dec['valid_until']}.",
        f"Снимки: старый {old['at'] if old else '—'}, новый {new['at'] if new else '—'}.",'','## Доли после исполнения','',
